@@ -1,6 +1,6 @@
 import asyncio
 from asyncio import TimeoutError as Timeout
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 from aiohttp import client_exceptions as cl_ex
 
@@ -13,7 +13,7 @@ _PL_STATUS = 200
 _REMOTE_CONTROL = "/pub/remote_control"
 _DEFAULT_ACCESS_MODE = "local"
 _DEFAULT_DELAY = 1
-_DEFAULT_LONG_PRESS = "False"
+_DEFAULT_LONG_PRESS = False
 _DEFAULT_PL_ID = 1
 _DEFAULT_REPEAT = 0
 _DEFAULT_TIMEOUT = 5
@@ -73,36 +73,37 @@ class Remote:
         "fwd",  # Bouton >> avance rapide
         "next",  # Bouton >>| suivant
     }
-    key_macro_test = [{"key": "info", "long": "False"}, {"key": "info", "repeat": 0}]
+    key_macro_test = [{"key": "info", "long": False}, {"key": "info", "repeat": 0}]
 
-    def build_key(self, **key_data: Union[str, int]) -> Dict[str, Any]:
+    def build_key(
+        self,
+        code: str,
+        key: str,
+        long_press: bool = _DEFAULT_LONG_PRESS,
+        repeat: int = _DEFAULT_REPEAT,
+    ) -> Dict[str, Any]:
         """
         Build key dict
 
         code : `str`
         key : `str`
-        long : `str`
-        repeat : `int`
+        long_press : `bool`, optional
+            Default to False
+        repeat : `int`, optional
+            Default to 0
         """
-
-        if "long" in key_data and key_data["long"] == "False":
-            try:
-                del key_data["long"]
-            except KeyError:
-                pass
-        if "repeat" in key_data and key_data["repeat"] == 0:
-            try:
-                del key_data["repeat"]
-            except KeyError:
-                pass
-
+        key_data = {"code": code, "key": key}
+        if long_press:
+            key_data["long"] = "True"
+        if repeat:
+            key_data["repeat"] = repeat
         return key_data
 
     async def send_key(
         self,
         code: str,
         key: str,
-        long_press: str = _DEFAULT_LONG_PRESS,
+        long_press: bool = _DEFAULT_LONG_PRESS,
         repeat: int = _DEFAULT_REPEAT,
     ):
         """
@@ -110,13 +111,15 @@ class Remote:
 
         code : `str`
         key : `str`
-        long_press : `str`, optional
-            Default to "False"
+        long_press : `bool`, optional
+            Default to False
         repeat : `int`, optional
             Default to 0
         """
         return await self.set_key(
-            key_data=self.build_key(code=code, key=key, long=long_press, repeat=repeat)
+            key_data=self.build_key(
+                code=code, key=key, long_press=long_press, repeat=repeat
+            )
         )
 
     async def send_macro(
@@ -162,9 +165,14 @@ class Remote:
             return False
 
         try:
-            r = await self._access.session.get(
+            resp = await self._access.session.get(
                 f"http://{self.player_host}{_REMOTE_CONTROL}",
-                params=self.build_key(**key_data),
+                params=self.build_key(
+                    code=key_data.get("code"),
+                    key=key_data.get("key"),
+                    long_press=key_data.get("long"),
+                    repeat=key_data.get("repeat"),
+                ),
                 timeout=_DEFAULT_TIMEOUT,
                 skip_auto_headers=[
                     "Accept",
@@ -173,9 +181,9 @@ class Remote:
                     "User-Agent",
                 ],
             )
-            async with r:
-                await r.read()
-                if r.status == _PL_STATUS and r.content_length == 0:
+            async with resp:
+                await resp.read()
+                if resp.status == _PL_STATUS and resp.content_length == 0:
                     return True
         except (Timeout, cl_ex.ServerDisconnectedError):
             pass
@@ -199,10 +207,9 @@ class Remote:
             Default to _DEFAULT_PL_ID
         """
 
-        self.access_mode = _DEFAULT_ACCESS_MODE if access_m is None else access_m
+        self.access_mode = _DEFAULT_ACCESS_MODE if not access_m else access_m
         if self.access_mode == "fbxhd":
-            self.player_host = f"{_PL_HOST}"
-            f"{_DEFAULT_PL_ID if player_id is None else player_id}{_PL_DOMAIN}"
+            self.player_host = f"{_PL_HOST}{_DEFAULT_PL_ID if not player_id else player_id}{_PL_DOMAIN}"
         elif self.access_mode == "host" and host is not None:
             self.player_host = host
         else:
